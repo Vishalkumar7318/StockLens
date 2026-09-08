@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@keyframes marquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-marquee-infinite {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: marquee 42s linear infinite;
+}
+
+.animate-marquee-infinite:hover {
+  animation-play-state: paused;
+}
+
+.animate-marquee-fast {
+  display: flex;
+  width: max-content;
+  will-change: transform;
+  animation: marquee 24s linear infinite;
+}
+
+.animate-marquee-fast:hover {
+  animation-play-state: paused;
+}
+
+.animate-marquee-paused {
+  display: flex;
+  width: max-content;
+  animation: marquee 42s linear infinite;
+  animation-play-state: paused;
+}
+
+@keyframes flash-green {
+  0%, 100% { background-color: transparent; }
+  30% { background-color: rgba(16, 185, 129, 0.25); }
+}
+
+@keyframes flash-red {
+  0%, 100% { background-color: transparent; }
+  30% { background-color: rgba(244, 63, 94, 0.25); }
+}
+
+.flash-tick-up {
+  animation: flash-green 0.85s ease-out;
+}
+
+.flash-tick-down {
+  animation: flash-red 0.85s ease-out;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

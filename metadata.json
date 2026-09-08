@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix StockLens AI",
+  "description": "AI-powered stock market news credibility and verification platform for Indian investors.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
