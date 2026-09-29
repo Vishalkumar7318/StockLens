@@ -3,7 +3,9 @@
 
 This contains everything you need to run your app locally.
 
-View your app : https://ai.studio/apps/f05f675b-e2f1-4609-b1c4-36bf17844c30
+## 🌐 Live Demo
+
+👉 https://stocklens-sand.vercel.app/
 
 ## Run Locally
 
