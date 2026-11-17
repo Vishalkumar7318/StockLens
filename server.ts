@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import http from 'http';
+import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import Parser from 'rss-parser';
@@ -14,6 +15,8 @@ import {
   setMarketSimulationMode,
   getMarketSimulationMode,
 } from './src/services/benchmarkService';
+
+dotenv.config({ path: ['.env.local', '.env'] });
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -422,8 +425,15 @@ Return JSON strictly matching this schema:
 app.post('/api/ai-assistant', async (req, res) => {
   const { message, history } = req.body;
 
-  if (!message || typeof message !== 'string') {
+  if (typeof message !== 'string' || !message.trim()) {
     return res.status(400).json({ success: false, message: 'Message is required' });
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(503).json({
+      success: false,
+      message: 'Gemini AI is not configured. Add your GEMINI_API_KEY to .env.local and restart the server.',
+    });
   }
 
   try {
@@ -445,12 +455,26 @@ You have real-time access to the StockLens news database:
 ${contextArticles}
 
 Guidelines:
-- Explain financial news with high clarity for Indian retail investors.
+- Answer the user's actual question directly, including general questions and follow-ups, not only news-verification requests.
+- Use the user's language where possible, including Hindi or Hinglish, and explain financial concepts clearly for Indian retail investors.
+- Use the supplied StockLens news as context, but do not claim it is exhaustive or real-time external research. Be clear when current facts cannot be verified from the available context.
 - Emphasize checking official exchange filings (NSE/BSE Regulation 30) before acting on market rumors.
-- Highlight credibility scores and red flags whenever discussing stock news.
-- Keep tone professional, analytical, objective, and unbiased. Do NOT give direct buy/sell advice, but rather evaluate the credibility of news driving stock prices.`;
+- Highlight credibility scores and red flags when relevant to stock news.
+- Keep tone professional, analytical, objective, and unbiased. Do not give personalized buy/sell advice.`;
 
-    const chatPrompt = `${systemInstruction}\n\nUser Question: ${message}`;
+    const conversationHistory = Array.isArray(history)
+      ? history
+          .filter(
+            (entry): entry is { sender: 'user' | 'assistant'; text: string } =>
+              entry &&
+              (entry.sender === 'user' || entry.sender === 'assistant') &&
+              typeof entry.text === 'string'
+          )
+          .slice(-10)
+          .map(({ sender, text }) => `${sender === 'user' ? 'User' : 'Assistant'}: ${text.slice(0, 2000)}`)
+          .join('\n')
+      : '';
+    const chatPrompt = `${systemInstruction}\n\n${conversationHistory ? `Recent conversation:\n${conversationHistory}\n\n` : ''}User Question: ${message.trim()}`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.6-flash',
@@ -468,7 +492,7 @@ Guidelines:
     console.error('Error in /api/ai-assistant:', err);
     res.status(500).json({
       success: false,
-      message: 'AI Assistant error',
+      message: `Gemini AI request failed: ${err.message || 'Check your API key, API access, and quota.'}`,
       error: err.message,
     });
   }

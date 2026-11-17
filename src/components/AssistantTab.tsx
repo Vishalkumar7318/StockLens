@@ -7,20 +7,15 @@ export const AssistantTab: React.FC = () => {
     {
       id: 'm1',
       sender: 'assistant',
-      text: `Hello! I am **StockLens AI Assistant**, your dedicated Indian stock market news & credibility analyst.
+      text: `Hello! I am **StockLens AI Assistant**. Ask me questions about Indian markets, stocks, finance, company news, or SEBI filings.
 
-You can ask me to:
-• Evaluate the credibility of recent news surrounding any NSE/BSE listed company.
-• Explain complex SEBI corporate disclosures or quarter result filings.
-• Check whether a stock market rumor circulating on social media is authentic or fake.
-
-What would you like to verify today?`,
+I can also help explain market concepts and follow up on our conversation. What would you like to know?`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       suggestedPrompts: [
-        'Is the Paytm RBI license revival rumor true?',
-        'Summarize TCS $1.2B European deal credibility',
-        'Are there any unverified rumors about Tata Motors?',
-        'How to verify SEBI Regulation 30 corporate filings?',
+        'What are NIFTY 50 and SENSEX?',
+        'Explain P/E ratio in simple terms',
+        'How can I verify an NSE company filing?',
+        'What does market volatility mean?',
       ],
     },
   ]);
@@ -46,12 +41,18 @@ What would you like to verify today?`,
       const res = await fetch('/api/ai-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: textToSend }),
+        body: JSON.stringify({
+          message: textToSend,
+          history: messages
+            .filter((message) => message.id !== 'm1')
+            .slice(-10)
+            .map(({ sender, text }) => ({ sender, text })),
+        }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Assistant request failed');
+        throw new Error(data.message || `Assistant request failed (${res.status})`);
       }
 
       const assistantMsg: ChatMessage = {
@@ -67,7 +68,7 @@ What would you like to verify today?`,
       const errorMsg: ChatMessage = {
         id: `e-${Date.now()}`,
         sender: 'assistant',
-        text: 'I apologize, I am temporarily unable to connect to the Gemini AI engine. Please verify that your connection is active and try again.',
+        text: err instanceof Error ? err.message : 'Unable to connect to the Gemini AI service. Please try again.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, errorMsg]);
@@ -87,7 +88,7 @@ What would you like to verify today?`,
           </div>
           <div>
             <h2 className="font-extrabold text-white text-base">StockLens AI Investment Assistant</h2>
-            <p className="text-xs text-slate-400 font-medium">Powered by Gemini LLM & SEBI Corporate Filing Knowledge Base</p>
+            <p className="text-xs text-slate-400 font-medium">Ask questions about Indian markets, finance, news, and filings</p>
           </div>
         </div>
 
@@ -167,7 +168,7 @@ What would you like to verify today?`,
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask StockLens AI about any Indian company news, rumor, or filing..."
+            placeholder="Ask StockLens AI a question about markets, finance, news, or anything else..."
             className="flex-1 px-4 py-3 text-xs sm:text-sm bg-[#14181F] text-white placeholder-slate-500 border border-[#1E222C] rounded-2xl focus:bg-[#161B22] focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 font-medium"
           />
           <button

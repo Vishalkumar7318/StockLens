@@ -209,6 +209,13 @@ export function getIndianMarketStatus(): BenchmarkMarketStatus {
   const istTimeString = `${pad(istHours12)}:${pad(minutes)}:${pad(istDate.getSeconds())} ${ampm} IST`;
 
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const nextOpenDay = isWeekend
+    ? 'Monday'
+    : timeInMinutes < 555
+      ? 'today'
+      : dayOfWeek === 5
+        ? 'Monday'
+        : 'tomorrow';
 
   // Trading Hours IST:
   // Pre-market: 09:00 - 09:15 (540 - 555)
@@ -241,7 +248,7 @@ export function getIndianMarketStatus(): BenchmarkMarketStatus {
       status: 'PRE_MARKET',
       label: 'Pre-Market Session',
       istTime: istTimeString,
-      isLive: true,
+      isLive: false,
       nextSession: 'Regular trading starts 09:15 AM IST',
     };
   }
@@ -249,10 +256,10 @@ export function getIndianMarketStatus(): BenchmarkMarketStatus {
   if (timeInMinutes >= 930 && timeInMinutes < 960) {
     return {
       status: 'POST_MARKET',
-      label: 'Post-Market Closing Session',
+      label: 'Market Closed (Post-Market Session)',
       istTime: istTimeString,
-      isLive: true,
-      nextSession: 'Closes at 04:00 PM IST',
+      isLive: false,
+      nextSession: `Next regular session ${nextOpenDay} 09:15 AM IST`,
     };
   }
 
@@ -261,7 +268,7 @@ export function getIndianMarketStatus(): BenchmarkMarketStatus {
     label: 'Market Closed',
     istTime: istTimeString,
     isLive: false,
-    nextSession: 'Opens tomorrow 09:15 AM IST',
+    nextSession: `Opens ${nextOpenDay} 09:15 AM IST`,
   };
 }
 
@@ -365,6 +372,17 @@ function applyOneSecondMarketTick() {
       },
       lastUpdated: nowIso,
     };
+
+    tickListeners.forEach((listener) => {
+      try {
+        listener(frozenPayload);
+      } catch (err) {
+        console.warn('Listener error in benchmark tick broadcast:', err);
+      }
+    });
+    return;
+  }
+
   // Live Trading is active (either real market hours or simulation mode): generate 1-second ticks
   // Tick 4 to 8 indices every second for authentic market action
   const countToTick = Math.floor(Math.random() * 4) + 4; // 4 to 7 indices per second
@@ -502,7 +520,7 @@ startOneSecondBenchmarkEngine();
 export async function fetchLiveBenchmarks(): Promise<BenchmarkResponse> {
   const marketStatus = getIndianMarketStatus();
   const isSimulation = marketSimulationMode === 'simulate_live';
-  const isTradingActive = true
+  const isTradingActive = isSimulation || marketStatus.status === 'OPEN';
 
   return {
     success: true,
