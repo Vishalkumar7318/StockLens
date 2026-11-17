@@ -476,13 +476,25 @@ Guidelines:
       : '';
     const chatPrompt = `${systemInstruction}\n\n${conversationHistory ? `Recent conversation:\n${conversationHistory}\n\n` : ''}User Question: ${message.trim()}`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.6-flash',
-      contents: chatPrompt,
-      config: {
-        temperature: 0.3,
-      },
-    });
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash-lite',
+        contents: chatPrompt,
+        config: {
+          temperature: 0.3,
+        },
+      });
+    } catch (primaryModelError) {
+      console.warn('Primary AI assistant model unavailable; trying fallback model.', primaryModelError);
+      response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
+        contents: chatPrompt,
+        config: {
+          temperature: 0.3,
+        },
+      });
+    }
 
     res.json({
       success: true,
