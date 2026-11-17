@@ -365,19 +365,6 @@ function applyOneSecondMarketTick() {
       },
       lastUpdated: nowIso,
     };
-
-    if (tickListeners.size > 0) {
-      tickListeners.forEach((listener) => {
-        try {
-          listener(frozenPayload);
-        } catch (err) {
-          // ignore
-        }
-      });
-    }
-    return;
-  }
-
   // Live Trading is active (either real market hours or simulation mode): generate 1-second ticks
   // Tick 4 to 8 indices every second for authentic market action
   const countToTick = Math.floor(Math.random() * 4) + 4; // 4 to 7 indices per second
@@ -515,7 +502,7 @@ startOneSecondBenchmarkEngine();
 export async function fetchLiveBenchmarks(): Promise<BenchmarkResponse> {
   const marketStatus = getIndianMarketStatus();
   const isSimulation = marketSimulationMode === 'simulate_live';
-  const isTradingActive = isSimulation || (marketStatus.status === 'OPEN');
+  const isTradingActive = true
 
   return {
     success: true,
