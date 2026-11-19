@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { Navbar } from './components/Navbar';
 import { TickerBar } from './components/TickerBar';
 import { NewsFeed } from './components/NewsFeed';
@@ -313,6 +314,8 @@ export default function App() {
         </div>
       </footer>
 
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
   );
 }
