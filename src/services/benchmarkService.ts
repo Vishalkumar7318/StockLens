@@ -1,19 +1,9 @@
 import { BenchmarkIndex, BenchmarkMarketStatus, BenchmarkResponse } from '../types';
 
 export interface BenchmarkConfig {
-  id: string;
-  symbol: string;
-  name: string;
-  fullName: string;
-  exchange: 'NSE' | 'BSE';
-  category: 'Broad Market' | 'Sectoral' | 'Volatility';
-  basePrice: number;
-  basePrevClose: number;
-  baseDayHigh: number;
-  baseDayLow: number;
-  fiftyTwoWeekHigh: number;
-  fiftyTwoWeekLow: number;
-  description: string;
+  id: string; symbol: string; name: string; fullName: string; exchange: 'NSE' | 'BSE';
+  category: 'Broad Market' | 'Sectoral' | 'Volatility'; basePrice: number; basePrevClose: number;
+  baseDayHigh: number; baseDayLow: number; fiftyTwoWeekHigh: number; fiftyTwoWeekLow: number; description: string;
 }
 
 export const INDIAN_BENCHMARK_CONFIGS: BenchmarkConfig[] = [
@@ -31,228 +21,102 @@ export const INDIAN_BENCHMARK_CONFIGS: BenchmarkConfig[] = [
 
 export function formatIndianNumber(num: number, decimals = 2): string {
   if (!Number.isFinite(num)) return '0.00';
-  const [whole, fraction] = num.toFixed(decimals).split('.');
-  const negative = whole.startsWith('-');
-  let digits = negative ? whole.slice(1) : whole;
-  if (digits.length <= 3) return `${negative ? '-' : ''}${digits}.${fraction ?? '00'}`;
-  const lastThree = digits.slice(-3);
-  const rest = digits.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',');
-  return `${negative ? '-' : ''}${rest},${lastThree}.${fraction ?? '00'}`;
+  return new Intl.NumberFormat('en-IN', { minimumFractionDigits:decimals, maximumFractionDigits:decimals }).format(num);
 }
 
 export function getIndianMarketStatus(): BenchmarkMarketStatus {
   const now = new Date();
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Kolkata', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
-  }).formatToParts(now);
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Kolkata', weekday:'short', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23' }).formatToParts(now);
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
   const weekday = get('weekday') || '';
-  const hours = Number(get('hour') || 0);
-  const minutes = Number(get('minute') || 0);
-  const seconds = Number(get('second') || 0);
-  const hours12 = hours % 12 || 12;
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const istTime = `${pad(hours12)}:${pad(minutes)}:${pad(seconds)} ${ampm} IST`;
-
-  return {
-    status: 'OPEN',
-    label: 'NSE/BSE Market LIVE',
-    istTime,
-    isLive: true,
-    nextSession: 'Live benchmark prices updating every second'
-  };
+  const hours = Number(get('hour') || 0), minutes = Number(get('minute') || 0), seconds = Number(get('second') || 0);
+  const hour12 = hours % 12 || 12, ampm = hours >= 12 ? 'PM' : 'AM';
+  const pad = (n:number) => String(n).padStart(2,'0');
+  const istTime = `${pad(hour12)}:${pad(minutes)}:${pad(seconds)} ${ampm} IST`;
+  const totalMinutes = hours * 60 + minutes;
+  if (weekday === 'Sat' || weekday === 'Sun') return { status:'CLOSED', label:'Market Closed (Weekend)', istTime, isLive:false, nextSession:'Opens Monday 09:15 AM IST' };
+  if (totalMinutes >= 540 && totalMinutes < 555) return { status:'PRE_MARKET', label:'Pre-Market Session', istTime, isLive:false, nextSession:'Regular trading starts 09:15 AM IST' };
+  if (totalMinutes >= 555 && totalMinutes < 930) return { status:'OPEN', label:'NSE/BSE Market LIVE', istTime, isLive:true, nextSession:'Closes at 03:30 PM IST' };
+  if (totalMinutes >= 930 && totalMinutes < 960) return { status:'POST_MARKET', label:'Market Closed (Post-Market Session)', istTime, isLive:false, nextSession:'Next regular session 09:15 AM IST' };
+  return { status:'CLOSED', label:'Market Closed', istTime, isLive:false, nextSession:totalMinutes < 540 ? 'Opens today 09:15 AM IST' : 'Opens next trading day 09:15 AM IST' };
 }
 
-let activeBenchmarks: BenchmarkIndex[] = INDIAN_BENCHMARK_CONFIGS.map((config) => {
-  const change = config.basePrice - config.basePrevClose;
-  const changePercent = (change / config.basePrevClose) * 100;
-  const positive = change >= 0;
-  return {
-    symbol: config.symbol,
-    name: config.name,
-    fullName: config.fullName,
-    exchange: config.exchange,
-    price: config.basePrice,
-    formattedPrice: formatIndianNumber(config.basePrice),
-    change: Number(change.toFixed(2)),
-    changePercent: Number(changePercent.toFixed(2)),
-    formattedChange: `${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`,
-    positive,
-    dayHigh: config.baseDayHigh,
-    dayLow: config.baseDayLow,
-    previousClose: config.basePrevClose,
-    fiftyTwoWeekHigh: config.fiftyTwoWeekHigh,
-    fiftyTwoWeekLow: config.fiftyTwoWeekLow,
-    sparkline: [config.basePrevClose, config.baseDayLow, (config.basePrice + config.basePrevClose) / 2, config.baseDayHigh, config.basePrice],
-    lastUpdated: new Date().toISOString(),
-    category: config.category,
-    description: config.description
-  };
+let activeBenchmarks: BenchmarkIndex[] = INDIAN_BENCHMARK_CONFIGS.map((c) => {
+  const change = c.basePrice - c.basePrevClose, percent = change / c.basePrevClose * 100, positive = change >= 0;
+  return { symbol:c.symbol,name:c.name,fullName:c.fullName,exchange:c.exchange,price:c.basePrice,formattedPrice:formatIndianNumber(c.basePrice),change:Number(change.toFixed(2)),changePercent:Number(percent.toFixed(2)),formattedChange:`${positive?'+':''}${change.toFixed(2)} (${positive?'+':''}${percent.toFixed(2)}%)`,positive,dayHigh:c.baseDayHigh,dayLow:c.baseDayLow,previousClose:c.basePrevClose,fiftyTwoWeekHigh:c.fiftyTwoWeekHigh,fiftyTwoWeekLow:c.fiftyTwoWeekLow,sparkline:[c.basePrevClose,c.baseDayLow,(c.basePrice+c.basePrevClose)/2,c.baseDayHigh,c.basePrice],lastUpdated:new Date().toISOString(),category:c.category,description:c.description };
 });
 
-type BenchmarkTickListener = (data: BenchmarkResponse) => void;
+type BenchmarkTickListener = (data:BenchmarkResponse)=>void;
 const tickListeners = new Set<BenchmarkTickListener>();
+export function subscribeToBenchmarkTicks(listener:BenchmarkTickListener) { tickListeners.add(listener); return () => tickListeners.delete(listener); }
 
-export function subscribeToBenchmarkTicks(listener: BenchmarkTickListener): () => void {
-  tickListeners.add(listener);
-  return () => tickListeners.delete(listener);
-}
-
-let marketSimulationMode: 'auto' | 'simulate_live' = 'simulate_live';
-
-export function setMarketSimulationMode(mode: 'auto' | 'simulate_live') {
-  marketSimulationMode = 'simulate_live';
-}
-
-export function getMarketSimulationMode(): 'auto' | 'simulate_live' {
-  return 'simulate_live';
-}
-
-let isTickEngineStarted = false;
+// Demo ticking is enabled by default so the ticker never appears frozen when exchanges are closed.
+let marketSimulationMode:'auto'|'simulate_live' = 'simulate_live';
+export function setMarketSimulationMode(mode:'auto'|'simulate_live') { marketSimulationMode = mode; }
+export function getMarketSimulationMode() { return marketSimulationMode; }
 
 async function syncWithYahooFinance() {
   await Promise.all(INDIAN_BENCHMARK_CONFIGS.map(async (config) => {
     try {
-      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(config.symbol)}?range=1d&interval=1m`, {
-        headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 StockLens/1.0' }
-      });
+      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(config.symbol)}?range=1d&interval=1m`, { headers:{Accept:'application/json','User-Agent':'Mozilla/5.0 StockLens/1.0'} });
       if (!response.ok) return;
       const json = await response.json();
       const meta = json?.chart?.result?.[0]?.meta;
       const price = meta?.regularMarketPrice;
-      const prevClose = meta?.previousClose || meta?.chartPreviousClose;
+      const previousClose = meta?.previousClose || meta?.chartPreviousClose;
       if (typeof price !== 'number' || price <= 0) return;
-
       const index = activeBenchmarks.findIndex((item) => item.symbol === config.symbol);
       if (index < 0) return;
-
       const current = activeBenchmarks[index];
-      const previousClose = typeof prevClose === 'number' && prevClose > 0 ? prevClose : current.previousClose;
-      const change = price - previousClose;
-      const changePercent = (change / previousClose) * 100;
-      const positive = change >= 0;
-      activeBenchmarks[index] = {
-        ...current,
-        price,
-        previousClose,
-        formattedPrice: formatIndianNumber(price),
-        change: Number(change.toFixed(2)),
-        changePercent: Number(changePercent.toFixed(2)),
-        formattedChange: `${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`,
-        positive,
-        dayHigh: typeof meta?.regularMarketDayHigh === 'number' ? meta.regularMarketDayHigh : Math.max(current.dayHigh, price),
-        dayLow: typeof meta?.regularMarketDayLow === 'number' ? meta.regularMarketDayLow : Math.min(current.dayLow, price),
-        sparkline: [...(current.sparkline || []), price].slice(-24),
-        lastUpdated: new Date().toISOString()
-      };
-    } catch {}
+      const close = typeof previousClose === 'number' && previousClose > 0 ? previousClose : current.previousClose;
+      const change = price - close, percent = change / close * 100, positive = change >= 0;
+      activeBenchmarks[index] = { ...current,price,previousClose:close,formattedPrice:formatIndianNumber(price),change:Number(change.toFixed(2)),changePercent:Number(percent.toFixed(2)),formattedChange:`${positive?'+':''}${change.toFixed(2)} (${positive?'+':''}${percent.toFixed(2)}%)`,positive,dayHigh:typeof meta?.regularMarketDayHigh==='number'?meta.regularMarketDayHigh:Math.max(current.dayHigh,price),dayLow:typeof meta?.regularMarketDayLow==='number'?meta.regularMarketDayLow:Math.min(current.dayLow,price),sparkline:[...(current.sparkline||[]),price].slice(-24),lastUpdated:new Date().toISOString() };
+    } catch { /* Keep current quotes if the upstream provider is unavailable. */ }
   }));
 }
 
-function applyOneSecondTick() {
+function publishTick() {
   const status = getIndianMarketStatus();
-
-  activeBenchmarks = activeBenchmarks.map((item) => {
+  const simulated = marketSimulationMode === 'simulate_live';
+  if (!simulated && status.status !== 'OPEN') {
+    const frozen:BenchmarkResponse = { success:true,benchmarks:activeBenchmarks,marketStatus:{...status,isLive:false,simulationActive:false,label:`${status.label} (Prices Frozen at Close)`},lastUpdated:new Date().toISOString() };
+    tickListeners.forEach((listener)=>listener(frozen));
+    return;
+  }
+  activeBenchmarks = activeBenchmarks.map((item)=>{
     const volatility = item.name === 'INDIA VIX' ? 0.00025 : 0.00008;
     const direction = Math.random() > 0.49 ? 1 : -1;
     const price = Number((item.price * (1 + volatility * direction * Math.random())).toFixed(2));
-    const change = price - item.previousClose;
-    const changePercent = (change / item.previousClose) * 100;
-    const positive = change >= 0;
-
-    return {
-      ...item,
-      price,
-      formattedPrice: formatIndianNumber(price),
-      change: Number(change.toFixed(2)),
-      changePercent: Number(changePercent.toFixed(2)),
-      formattedChange: `${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`,
-      positive,
-      dayHigh: Math.max(item.dayHigh, price),
-      dayLow: Math.min(item.dayLow, price),
-      sparkline: [...(item.sparkline || []), price].slice(-24),
-      lastUpdated: new Date().toISOString()
-    };
+    const change = price - item.previousClose, percent = change / item.previousClose * 100, positive = change >= 0;
+    return {...item,price,formattedPrice:formatIndianNumber(price),change:Number(change.toFixed(2)),changePercent:Number(percent.toFixed(2)),formattedChange:`${positive?'+':''}${change.toFixed(2)} (${positive?'+':''}${percent.toFixed(2)}%)`,positive,dayHigh:Math.max(item.dayHigh,price),dayLow:Math.min(item.dayLow,price),sparkline:[...(item.sparkline||[]),price].slice(-24),lastUpdated:new Date().toISOString()};
   });
-
-  const payload: BenchmarkResponse = {
-    success: true,
-    benchmarks: activeBenchmarks,
-    marketStatus: {
-      ...status,
-      isLive: true,
-      simulationActive: false,
-      label: 'LIVE 1s'
-    },
-    lastUpdated: new Date().toISOString()
-  };
-
-  tickListeners.forEach((listener) => listener(payload));
+  const payload:BenchmarkResponse = {success:true,benchmarks:activeBenchmarks,marketStatus:{...status,isLive:true,simulationActive:simulated,label:simulated?'Live Simulation Mode (1s Ticking)':status.label},lastUpdated:new Date().toISOString()};
+  tickListeners.forEach((listener)=>listener(payload));
 }
 
+let engineStarted = false;
 function startEngine() {
-  if (isTickEngineStarted) return;
-  isTickEngineStarted = true;
-  syncWithYahooFinance().catch(() => {});
-  setInterval(() => syncWithYahooFinance().catch(() => {}), 10000);
-  setInterval(applyOneSecondTick, 1000);
+  if (engineStarted) return;
+  engineStarted = true;
+  syncWithYahooFinance().catch(()=>{});
+  setInterval(()=>syncWithYahooFinance().catch(()=>{}),10000);
+  setInterval(publishTick,1000);
 }
-
 startEngine();
 
-export async function fetchLiveBenchmarks(): Promise<BenchmarkResponse> {
-  const marketStatus = getIndianMarketStatus();
-  return {
-    success: true,
-    benchmarks: activeBenchmarks,
-    marketStatus: {
-      ...marketStatus,
-      isLive: true,
-      simulationActive: false,
-      label: 'LIVE 1s'
-    },
-    lastUpdated: new Date().toISOString()
-  };
+export async function fetchLiveBenchmarks():Promise<BenchmarkResponse> {
+  const status = getIndianMarketStatus();
+  const simulated = marketSimulationMode === 'simulate_live';
+  const isLive = simulated || status.status === 'OPEN';
+  return {success:true,benchmarks:activeBenchmarks,marketStatus:{...status,isLive,simulationActive:simulated,label:simulated?'Live Simulation Mode (1s Ticking)':isLive?status.label:`${status.label} (Prices Frozen at Close)`},lastUpdated:new Date().toISOString()};
 }
 
-export function getBenchmarkLiveQuote(identifier: string): BenchmarkIndex | null {
+export function getBenchmarkLiveQuote(identifier:string):BenchmarkIndex|null {
   const query = identifier.trim().toUpperCase();
-  const found = activeBenchmarks.find((item) =>
-    item.name.toUpperCase() === query ||
-    item.symbol.toUpperCase() === query ||
-    item.fullName.toUpperCase().includes(query) ||
-    (query === 'NIFTY' && item.name === 'NIFTY 50') ||
-    (query === 'SENSEX' && item.name === 'SENSEX')
-  );
+  const found = activeBenchmarks.find((item)=>item.name.toUpperCase()===query||item.symbol.toUpperCase()===query||item.fullName.toUpperCase().includes(query)||(query==='NIFTY'&&item.name==='NIFTY 50')||(query==='SENSEX'&&item.name==='SENSEX'));
   if (found) return found;
-
-  const config = INDIAN_BENCHMARK_CONFIGS.find((item) =>
-    item.name.toUpperCase() === query || item.symbol.toUpperCase() === query || item.id.toUpperCase() === query
-  );
-  if (!config) return null;
-
-  const change = config.basePrice - config.basePrevClose;
-  const positive = change >= 0;
-  return {
-    symbol: config.symbol,
-    name: config.name,
-    fullName: config.fullName,
-    exchange: config.exchange,
-    price: config.basePrice,
-    formattedPrice: formatIndianNumber(config.basePrice),
-    change: Number(change.toFixed(2)),
-    changePercent: Number((change / config.basePrevClose * 100).toFixed(2)),
-    formattedChange: `${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${(change / config.basePrevClose * 100).toFixed(2)}%)`,
-    positive,
-    dayHigh: config.baseDayHigh,
-    dayLow: config.baseDayLow,
-    previousClose: config.basePrevClose,
-    fiftyTwoWeekHigh: config.fiftyTwoWeekHigh,
-    fiftyTwoWeekLow: config.fiftyTwoWeekLow,
-    sparkline: [config.basePrevClose, config.baseDayLow, config.basePrice],
-    lastUpdated: new Date().toISOString(),
-    category: config.category,
-    description: config.description
-  };
+  const c = INDIAN_BENCHMARK_CONFIGS.find((item)=>item.name.toUpperCase()===query||item.symbol.toUpperCase()===query||item.id.toUpperCase()===query||(query==='NIFTY'&&item.id==='nifty-50')||(query==='SENSEX'&&item.id==='sensex'));
+  if (!c) return null;
+  const change=c.basePrice-c.basePrevClose, percent=change/c.basePrevClose*100, positive=change>=0;
+  return {symbol:c.symbol,name:c.name,fullName:c.fullName,exchange:c.exchange,price:c.basePrice,formattedPrice:formatIndianNumber(c.basePrice),change:Number(change.toFixed(2)),changePercent:Number(percent.toFixed(2)),formattedChange:`${positive?'+':''}${change.toFixed(2)} (${positive?'+':''}${percent.toFixed(2)}%)`,positive,dayHigh:c.baseDayHigh,dayLow:c.baseDayLow,previousClose:c.basePrevClose,fiftyTwoWeekHigh:c.fiftyTwoWeekHigh,fiftyTwoWeekLow:c.fiftyTwoWeekLow,sparkline:[c.basePrevClose,c.baseDayLow,c.basePrice],lastUpdated:new Date().toISOString(),category:c.category,description:c.description};
 }
