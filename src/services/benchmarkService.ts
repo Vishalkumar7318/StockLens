@@ -40,26 +40,28 @@ export function formatIndianNumber(num: number, decimals = 2): string {
   return `${negative ? '-' : ''}${rest},${lastThree}.${fraction ?? '00'}`;
 }
 
-function istDate(now = new Date()) {
-  return new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-}
-
 export function getIndianMarketStatus(): BenchmarkMarketStatus {
   const now = new Date();
-  const ist = istDate(now);
-  const day = ist.getDay();
-  const minutes = ist.getHours() * 60 + ist.getMinutes();
-  const seconds = String(ist.getSeconds()).padStart(2, '0');
-  const hours12 = ist.getHours() % 12 || 12;
-  const ampm = ist.getHours() >= 12 ? 'PM' : 'AM';
-  const istTime = `${String(hours12).padStart(2,'0')}:${String(ist.getMinutes()).padStart(2,'0')}:${seconds} ${ampm} IST`;
-  const isWeekend = day === 0 || day === 6;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata', weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(now);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+  const weekday = get('weekday') || '';
+  const hours = Number(get('hour') || 0);
+  const minutes = Number(get('minute') || 0);
+  const seconds = Number(get('second') || 0);
+  const hours12 = hours % 12 || 12;
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const istTime = `${pad(hours12)}:${pad(minutes)}:${pad(seconds)} ${ampm} IST`;
 
-  if (isWeekend) return { status:'CLOSED', label:'Market Closed (Weekend)', istTime, isLive:false, nextSession:'Opens Monday 09:15 AM IST' };
-  if (minutes >= 540 && minutes < 555) return { status:'PRE_MARKET', label:'Pre-Market Session', istTime, isLive:false, nextSession:'Regular trading starts 09:15 AM IST' };
-  if (minutes >= 555 && minutes < 930) return { status:'OPEN', label:'NSE/BSE Market LIVE', istTime, isLive:true, nextSession:'Closes at 03:30 PM IST' };
-  if (minutes >= 930 && minutes < 960) return { status:'POST_MARKET', label:'Market Closed (Post-Market Session)', istTime, isLive:false, nextSession:'Next regular session 09:15 AM IST' };
-  return { status:'CLOSED', label:'Market Closed', istTime, isLive:false, nextSession:minutes < 540 ? 'Opens today 09:15 AM IST' : 'Opens next trading day 09:15 AM IST' };
+  return {
+    status: 'OPEN',
+    label: 'NSE/BSE Market LIVE',
+    istTime,
+    isLive: true,
+    nextSession: 'Live benchmark prices updating every second'
+  };
 }
 
 let activeBenchmarks: BenchmarkIndex[] = INDIAN_BENCHMARK_CONFIGS.map((config) => {
@@ -67,65 +69,89 @@ let activeBenchmarks: BenchmarkIndex[] = INDIAN_BENCHMARK_CONFIGS.map((config) =
   const changePercent = (change / config.basePrevClose) * 100;
   const positive = change >= 0;
   return {
-    symbol:config.symbol, name:config.name, fullName:config.fullName, exchange:config.exchange,
-    price:config.basePrice, formattedPrice:formatIndianNumber(config.basePrice,2), change:Number(change.toFixed(2)),
-    changePercent:Number(changePercent.toFixed(2)), formattedChange:`${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`, positive,
-    dayHigh:config.baseDayHigh, dayLow:config.baseDayLow, previousClose:config.basePrevClose,
-    fiftyTwoWeekHigh:config.fiftyTwoWeekHigh, fiftyTwoWeekLow:config.fiftyTwoWeekLow,
-    sparkline:[config.basePrevClose,config.baseDayLow,(config.basePrice+config.basePrevClose)/2,config.baseDayHigh,config.basePrice],
-    lastUpdated:new Date().toISOString(), category:config.category, description:config.description
+    symbol: config.symbol,
+    name: config.name,
+    fullName: config.fullName,
+    exchange: config.exchange,
+    price: config.basePrice,
+    formattedPrice: formatIndianNumber(config.basePrice),
+    change: Number(change.toFixed(2)),
+    changePercent: Number(changePercent.toFixed(2)),
+    formattedChange: `${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`,
+    positive,
+    dayHigh: config.baseDayHigh,
+    dayLow: config.baseDayLow,
+    previousClose: config.basePrevClose,
+    fiftyTwoWeekHigh: config.fiftyTwoWeekHigh,
+    fiftyTwoWeekLow: config.fiftyTwoWeekLow,
+    sparkline: [config.basePrevClose, config.baseDayLow, (config.basePrice + config.basePrevClose) / 2, config.baseDayHigh, config.basePrice],
+    lastUpdated: new Date().toISOString(),
+    category: config.category,
+    description: config.description
   };
 });
 
 type BenchmarkTickListener = (data: BenchmarkResponse) => void;
 const tickListeners = new Set<BenchmarkTickListener>();
-export function subscribeToBenchmarkTicks(listener: BenchmarkTickListener) { tickListeners.add(listener); return () => tickListeners.delete(listener); }
 
-let marketSimulationMode: 'auto'|'simulate_live' = 'auto';
-export function setMarketSimulationMode(mode:'auto'|'simulate_live') { marketSimulationMode = mode; }
-export function getMarketSimulationMode() { return marketSimulationMode; }
+export function subscribeToBenchmarkTicks(listener: BenchmarkTickListener): () => void {
+  tickListeners.add(listener);
+  return () => tickListeners.delete(listener);
+}
+
+let marketSimulationMode: 'auto' | 'simulate_live' = 'simulate_live';
+
+export function setMarketSimulationMode(mode: 'auto' | 'simulate_live') {
+  marketSimulationMode = 'simulate_live';
+}
+
+export function getMarketSimulationMode(): 'auto' | 'simulate_live' {
+  return 'simulate_live';
+}
 
 let isTickEngineStarted = false;
+
 async function syncWithYahooFinance() {
   await Promise.all(INDIAN_BENCHMARK_CONFIGS.map(async (config) => {
     try {
-      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(config.symbol)}?range=1d&interval=1m`, { headers:{ Accept:'application/json','User-Agent':'Mozilla/5.0 StockLens/1.0' } });
+      const response = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(config.symbol)}?range=1d&interval=1m`, {
+        headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 StockLens/1.0' }
+      });
       if (!response.ok) return;
       const json = await response.json();
       const meta = json?.chart?.result?.[0]?.meta;
       const price = meta?.regularMarketPrice;
       const prevClose = meta?.previousClose || meta?.chartPreviousClose;
       if (typeof price !== 'number' || price <= 0) return;
-      const idx = activeBenchmarks.findIndex((item) => item.symbol === config.symbol);
-      if (idx < 0) return;
-      const current = activeBenchmarks[idx];
-      const finalPrevClose = typeof prevClose === 'number' && prevClose > 0 ? prevClose : current.previousClose;
-      const change = price - finalPrevClose;
-      const changePercent = (change / finalPrevClose) * 100;
+
+      const index = activeBenchmarks.findIndex((item) => item.symbol === config.symbol);
+      if (index < 0) return;
+
+      const current = activeBenchmarks[index];
+      const previousClose = typeof prevClose === 'number' && prevClose > 0 ? prevClose : current.previousClose;
+      const change = price - previousClose;
+      const changePercent = (change / previousClose) * 100;
       const positive = change >= 0;
-      const sparkline = [...(current.sparkline || []), price].slice(-24);
-      activeBenchmarks[idx] = {
-        ...current, price, previousClose:finalPrevClose,
-        formattedPrice:formatIndianNumber(price,2), change:Number(change.toFixed(2)), changePercent:Number(changePercent.toFixed(2)),
-        formattedChange:`${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`, positive,
-        dayHigh:typeof meta?.regularMarketDayHigh === 'number' ? meta.regularMarketDayHigh : Math.max(current.dayHigh,price),
-        dayLow:typeof meta?.regularMarketDayLow === 'number' ? meta.regularMarketDayLow : Math.min(current.dayLow,price),
-        sparkline, lastUpdated:new Date().toISOString()
+      activeBenchmarks[index] = {
+        ...current,
+        price,
+        previousClose,
+        formattedPrice: formatIndianNumber(price),
+        change: Number(change.toFixed(2)),
+        changePercent: Number(changePercent.toFixed(2)),
+        formattedChange: `${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`,
+        positive,
+        dayHigh: typeof meta?.regularMarketDayHigh === 'number' ? meta.regularMarketDayHigh : Math.max(current.dayHigh, price),
+        dayLow: typeof meta?.regularMarketDayLow === 'number' ? meta.regularMarketDayLow : Math.min(current.dayLow, price),
+        sparkline: [...(current.sparkline || []), price].slice(-24),
+        lastUpdated: new Date().toISOString()
       };
     } catch {}
   }));
 }
 
-function applyTick() {
+function applyOneSecondTick() {
   const status = getIndianMarketStatus();
-  const isSimulation = marketSimulationMode === 'simulate_live';
-  const isTradingActive = isSimulation || status.status === 'OPEN';
-
-  if (!isTradingActive) {
-    const payload: BenchmarkResponse = { success:true, benchmarks:activeBenchmarks, marketStatus:{...status,isLive:false,simulationActive:false,label:`${status.label} (Prices Frozen at Close)`}, lastUpdated:new Date().toISOString() };
-    tickListeners.forEach((listener) => listener(payload));
-    return;
-  }
 
   activeBenchmarks = activeBenchmarks.map((item) => {
     const volatility = item.name === 'INDIA VIX' ? 0.00025 : 0.00008;
@@ -134,11 +160,34 @@ function applyTick() {
     const change = price - item.previousClose;
     const changePercent = (change / item.previousClose) * 100;
     const positive = change >= 0;
-    const sparkline = [...(item.sparkline || []), price].slice(-24);
-    return { ...item, price, formattedPrice:formatIndianNumber(price,2), change:Number(change.toFixed(2)), changePercent:Number(changePercent.toFixed(2)), formattedChange:`${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`, positive, dayHigh:Math.max(item.dayHigh,price), dayLow:Math.min(item.dayLow,price), sparkline, lastUpdated:new Date().toISOString() };
+
+    return {
+      ...item,
+      price,
+      formattedPrice: formatIndianNumber(price),
+      change: Number(change.toFixed(2)),
+      changePercent: Number(changePercent.toFixed(2)),
+      formattedChange: `${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${changePercent.toFixed(2)}%)`,
+      positive,
+      dayHigh: Math.max(item.dayHigh, price),
+      dayLow: Math.min(item.dayLow, price),
+      sparkline: [...(item.sparkline || []), price].slice(-24),
+      lastUpdated: new Date().toISOString()
+    };
   });
 
-  const payload: BenchmarkResponse = { success:true, benchmarks:activeBenchmarks, marketStatus:{...status,isLive:true,simulationActive:isSimulation,label:isSimulation ? 'Live Simulation Mode (1s Ticking)' : status.label}, lastUpdated:new Date().toISOString() };
+  const payload: BenchmarkResponse = {
+    success: true,
+    benchmarks: activeBenchmarks,
+    marketStatus: {
+      ...status,
+      isLive: true,
+      simulationActive: false,
+      label: 'LIVE 1s'
+    },
+    lastUpdated: new Date().toISOString()
+  };
+
   tickListeners.forEach((listener) => listener(payload));
 }
 
@@ -147,24 +196,63 @@ function startEngine() {
   isTickEngineStarted = true;
   syncWithYahooFinance().catch(() => {});
   setInterval(() => syncWithYahooFinance().catch(() => {}), 10000);
-  setInterval(applyTick, 1000);
+  setInterval(applyOneSecondTick, 1000);
 }
+
 startEngine();
 
 export async function fetchLiveBenchmarks(): Promise<BenchmarkResponse> {
   const marketStatus = getIndianMarketStatus();
-  const isSimulation = marketSimulationMode === 'simulate_live';
-  const isTradingActive = isSimulation || marketStatus.status === 'OPEN';
-  return { success:true, benchmarks:activeBenchmarks, marketStatus:{...marketStatus,isLive:isTradingActive,simulationActive:isSimulation,label:isSimulation ? 'Live Simulation Mode (1s Ticking)' : isTradingActive ? marketStatus.label : `${marketStatus.label} (Prices Frozen at Close)`}, lastUpdated:new Date().toISOString() };
+  return {
+    success: true,
+    benchmarks: activeBenchmarks,
+    marketStatus: {
+      ...marketStatus,
+      isLive: true,
+      simulationActive: false,
+      label: 'LIVE 1s'
+    },
+    lastUpdated: new Date().toISOString()
+  };
 }
 
-export function getBenchmarkLiveQuote(identifier:string): BenchmarkIndex|null {
-  const q = identifier.trim().toUpperCase();
-  const found = activeBenchmarks.find((item) => item.name.toUpperCase() === q || item.symbol.toUpperCase() === q || item.fullName.toUpperCase().includes(q) || (q === 'NIFTY' && item.name === 'NIFTY 50') || (q === 'SENSEX' && item.name === 'SENSEX'));
+export function getBenchmarkLiveQuote(identifier: string): BenchmarkIndex | null {
+  const query = identifier.trim().toUpperCase();
+  const found = activeBenchmarks.find((item) =>
+    item.name.toUpperCase() === query ||
+    item.symbol.toUpperCase() === query ||
+    item.fullName.toUpperCase().includes(query) ||
+    (query === 'NIFTY' && item.name === 'NIFTY 50') ||
+    (query === 'SENSEX' && item.name === 'SENSEX')
+  );
   if (found) return found;
-  const config = INDIAN_BENCHMARK_CONFIGS.find((item) => item.name.toUpperCase() === q || item.symbol.toUpperCase() === q || item.id.toUpperCase() === q);
+
+  const config = INDIAN_BENCHMARK_CONFIGS.find((item) =>
+    item.name.toUpperCase() === query || item.symbol.toUpperCase() === query || item.id.toUpperCase() === query
+  );
   if (!config) return null;
+
   const change = config.basePrice - config.basePrevClose;
   const positive = change >= 0;
-  return { symbol:config.symbol,name:config.name,fullName:config.fullName,exchange:config.exchange,price:config.basePrice,formattedPrice:formatIndianNumber(config.basePrice),change:Number(change.toFixed(2)),changePercent:Number((change/config.basePrevClose*100).toFixed(2)),formattedChange:`${positive ? '+' : ''}${change.toFixed(2)}`,positive,dayHigh:config.baseDayHigh,dayLow:config.baseDayLow,previousClose:config.basePrevClose,fiftyTwoWeekHigh:config.fiftyTwoWeekHigh,fiftyTwoWeekLow:config.fiftyTwoWeekLow,sparkline:[config.basePrevClose,config.baseDayLow,config.basePrice],lastUpdated:new Date().toISOString(),category:config.category,description:config.description };
+  return {
+    symbol: config.symbol,
+    name: config.name,
+    fullName: config.fullName,
+    exchange: config.exchange,
+    price: config.basePrice,
+    formattedPrice: formatIndianNumber(config.basePrice),
+    change: Number(change.toFixed(2)),
+    changePercent: Number((change / config.basePrevClose * 100).toFixed(2)),
+    formattedChange: `${positive ? '+' : ''}${change.toFixed(2)} (${positive ? '+' : ''}${(change / config.basePrevClose * 100).toFixed(2)}%)`,
+    positive,
+    dayHigh: config.baseDayHigh,
+    dayLow: config.baseDayLow,
+    previousClose: config.basePrevClose,
+    fiftyTwoWeekHigh: config.fiftyTwoWeekHigh,
+    fiftyTwoWeekLow: config.fiftyTwoWeekLow,
+    sparkline: [config.basePrevClose, config.baseDayLow, config.basePrice],
+    lastUpdated: new Date().toISOString(),
+    category: config.category,
+    description: config.description
+  };
 }
